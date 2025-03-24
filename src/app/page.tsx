@@ -2,19 +2,28 @@
 
 import PageLayout from '@/components/PageLayout';
 import { useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 
-export default function Home() {
+function SignOutMessage() {
   const searchParams = useSearchParams();
   const signedOut = searchParams.get('signedOut');
 
+  if (!signedOut) return null;
+
+  return (
+    <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 text-center" role="alert">
+      <span className="block sm:inline">You have been signed out successfully.</span>
+    </div>
+  );
+}
+
+export default function Home() {
   return (
     <PageLayout>
       <main className="min-h-[calc(100vh-4rem)]">
-        {signedOut && (
-          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 text-center" role="alert">
-            <span className="block sm:inline">You have been signed out successfully.</span>
-          </div>
-        )}
+        <Suspense>
+          <SignOutMessage />
+        </Suspense>
         {/* Hero Section */}
         <section className="bg-gradient-to-r from-blue-500 to-purple-600 text-white">
           <div className="container mx-auto px-4 py-20">
@@ -48,14 +57,14 @@ export default function Home() {
                 <div className="text-blue-500 text-4xl mb-4">👥</div>
                 <h3 className="text-xl font-semibold mb-2">Share with Anyone</h3>
                 <p className="text-gray-600">
-                  Create private albums and share them with specific friends or family members.
+                  Share your albums with friends and family, and let them vote on their favorites.
                 </p>
               </div>
               <div className="bg-white p-6 rounded-lg shadow-md">
-                <div className="text-blue-500 text-4xl mb-4">👍</div>
-                <h3 className="text-xl font-semibold mb-2">Vote & Engage</h3>
+                <div className="text-blue-500 text-4xl mb-4">🏆</div>
+                <h3 className="text-xl font-semibold mb-2">Vote and Rank</h3>
                 <p className="text-gray-600">
-                  Let your audience vote on photos and sort them by popularity.
+                  Let your audience vote on their favorite photos and see what rises to the top.
                 </p>
               </div>
             </div>

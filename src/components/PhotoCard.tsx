@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useSession } from 'next-auth/react';
+import Image from 'next/image';
 
 interface Vote {
   id: string;
@@ -61,10 +62,12 @@ export default function PhotoCard({ id, url, title, votes, onVoteChange }: Photo
 
   return (
     <div className="relative h-full group">
-      <img
+      <Image
         src={url}
         alt={title || 'Photo'}
-        className="w-full h-full object-cover"
+        fill
+        className="object-cover"
+        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
       />
       <div className="absolute bottom-0 left-0 right-0 bg-black/50 backdrop-blur-sm p-2 opacity-0 group-hover:opacity-100 transition-opacity">
         <div className="flex items-center gap-4 text-sm">

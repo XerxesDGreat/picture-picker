@@ -1,67 +1,74 @@
-import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { PrismaClient } from '@prisma/client';
-import { authOptions } from '../../../auth/[...nextauth]/route';
-import { uploadFile } from '@/lib/minio';
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/app/api/auth/[...nextauth]/auth";
+import { prisma } from "@/lib/prisma";
+import { uploadFile } from "@/lib/minio";
 import sharp from 'sharp';
 import exifr from 'exifr';
-
-const prisma = new PrismaClient();
 
 async function getImageDimensions(buffer: Buffer): Promise<{ width: number; height: number }> {
   const metadata = await sharp(buffer).metadata();
   return {
     width: metadata.width || 0,
-    height: metadata.height || 0
+    height: metadata.height || 0,
   };
 }
 
-async function getImageCaptureDate(buffer: Buffer): Promise<Date | null> {
+async function getCaptureDate(buffer: Buffer): Promise<Date | null> {
   try {
-    const exif = await exifr.parse(buffer, ['DateTimeOriginal', 'CreateDate', 'ModifyDate']);
-    if (exif) {
-      // Try different EXIF date fields in order of preference
-      const captureDate = exif.DateTimeOriginal || exif.CreateDate || exif.ModifyDate;
-      if (captureDate) {
-        return new Date(captureDate);
-      }
-    }
-    return null;
+    const exif = await exifr.parse(buffer);
+    return exif?.DateTimeOriginal ? new Date(exif.DateTimeOriginal) : null;
   } catch (error) {
-    console.error('Error extracting EXIF data:', error);
+    console.error('Error parsing EXIF:', error);
     return null;
   }
 }
 
 export async function POST(
-  request: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const formData = await request.formData();
+    const files = formData.getAll("files") as File[];
+
+    if (!files.length) {
+      return NextResponse.json(
+        { error: "No files provided" },
+        { status: 400 }
+      );
     }
 
-    const { id } = await params;
     const album = await prisma.album.findUnique({
       where: { id },
-      include: { creator: true }
+      include: {
+        creator: true,
+        sharedWith: true,
+      },
     });
 
     if (!album) {
-      return NextResponse.json({ error: 'Album not found' }, { status: 404 });
+      return NextResponse.json(
+        { error: "Album not found" },
+        { status: 404 }
+      );
     }
 
-    if (album.creator.email !== session.user.email) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const formData = await request.formData();
-    const files = formData.getAll('files') as File[];
-
-    if (!files.length) {
-      return NextResponse.json({ error: 'No files provided' }, { status: 400 });
+    // Check if user has access to this album
+    if (
+      album.creator.id !== session.user.id &&
+      !album.sharedWith.some((user) => user.id === session.user.id)
+    ) {
+      return NextResponse.json(
+        { error: "Access denied" },
+        { status: 403 }
+      );
     }
 
     const uploadedPhotos = await Promise.all(
@@ -74,7 +81,7 @@ export async function POST(
         );
 
         const dimensions = await getImageDimensions(buffer);
-        const captureDate = await getImageCaptureDate(buffer);
+        const captureDate = await getCaptureDate(buffer);
 
         return prisma.photo.create({
           data: {
@@ -84,18 +91,18 @@ export async function POST(
             width: dimensions.width,
             height: dimensions.height,
             captureDate,
-            albumId: id,
-            creatorId: album.creatorId
-          }
+            albumId: album.id,
+            creatorId: album.creator.id
+          },
         });
       })
     );
 
-    return NextResponse.json({ photos: uploadedPhotos });
+    return NextResponse.json(uploadedPhotos);
   } catch (error) {
-    console.error('Error uploading photos:', error);
+    console.error("Error uploading photos:", error);
     return NextResponse.json(
-      { error: 'Error uploading photos' },
+      { error: "Failed to upload photos" },
       { status: 500 }
     );
   }

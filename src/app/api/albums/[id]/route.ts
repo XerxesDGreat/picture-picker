@@ -1,16 +1,14 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { PrismaClient } from '@prisma/client';
-import { authOptions } from '../../auth/[...nextauth]/route';
-
-const prisma = new PrismaClient();
+import { authOptions } from '../../auth/[...nextauth]/auth';
+import { prisma } from '@/lib/prisma';
 
 export async function GET(
-  request: Request,
-  context: { params: { id: string } }
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   const session = await getServerSession(authOptions);
-  const { id } = await context.params;
   
   if (!session?.user?.email) {
     return NextResponse.json(
@@ -64,7 +62,7 @@ export async function GET(
       // Check if the album is shared with the user
       const sharedAlbum = await prisma.album.findFirst({
         where: {
-          id,
+          id: id,
           sharedWith: {
             some: {
               id: user.id
