@@ -53,7 +53,7 @@ export default function AlbumPage({ params }: { params: Promise<{ id: string }> 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [sortOption, setSortOption] = useState<SortOption>('captureDate-asc');
+  const [sortOption, setSortOption] = useState<SortOption>('score-desc');
 
   const sortedPhotos = useMemo(() => {
     if (!album?.photos) return [];
