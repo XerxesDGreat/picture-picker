@@ -2,15 +2,15 @@
 
 import { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
+import Image from 'next/image';
 
 interface PhotoUploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUpload: (files: File[]) => Promise<void>;
-  albumId: string;
 }
 
-export default function PhotoUploadModal({ isOpen, onClose, onUpload, albumId }: PhotoUploadModalProps) {
+export default function PhotoUploadModal({ isOpen, onClose, onUpload }: PhotoUploadModalProps) {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -82,11 +82,12 @@ export default function PhotoUploadModal({ isOpen, onClose, onUpload, albumId }:
             <h3 className="font-semibold mb-2 text-gray-900 dark:text-gray-100">Selected Photos ({selectedFiles.length})</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               {selectedFiles.map((file, index) => (
-                <div key={index} className="relative group">
-                  <img
+                <div key={index} className="relative group aspect-square">
+                  <Image
                     src={URL.createObjectURL(file)}
                     alt={file.name}
-                    className="w-full h-32 object-cover rounded-lg"
+                    fill
+                    className="object-cover rounded-lg"
                   />
                   <button
                     onClick={() => removeFile(index)}
