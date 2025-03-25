@@ -2,7 +2,7 @@
 const nextConfig = {
   output: 'standalone',
   images: {
-    domains: ['localhost'],
+    domains: ['localhost', '192.168.140.3'],
   },
 }
 

@@ -48,8 +48,7 @@ export async function POST(
     const album = await prisma.album.findUnique({
       where: { id },
       include: {
-        creator: true,
-        sharedWith: true,
+        creator: true
       },
     });
 
@@ -57,17 +56,6 @@ export async function POST(
       return NextResponse.json(
         { error: "Album not found" },
         { status: 404 }
-      );
-    }
-
-    // Check if user has access to this album
-    if (
-      album.creator.id !== session.user.id &&
-      !album.sharedWith.some((user) => user.id === session.user.id)
-    ) {
-      return NextResponse.json(
-        { error: "Access denied" },
-        { status: 403 }
       );
     }
 
@@ -92,7 +80,7 @@ export async function POST(
             height: dimensions.height,
             captureDate,
             albumId: album.id,
-            creatorId: album.creator.id
+            creatorId: session.user.id
           },
         });
       })

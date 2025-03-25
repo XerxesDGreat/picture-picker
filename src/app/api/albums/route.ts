@@ -16,45 +16,23 @@ export async function GET() {
   }
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
+    const albums = await prisma.album.findMany({
       include: {
-        createdAlbums: {
+        photos: {
           include: {
-            photos: {
-              include: {
-                votes: true
-              }
-            }
+            votes: true
           }
         },
-        sharedAlbums: {
-          include: {
-            creator: {
-              select: {
-                name: true
-              }
-            },
-            photos: {
-              include: {
-                votes: true
-              }
-            }
+        creator: {
+          select: {
+            name: true
           }
         }
       }
     });
 
-    if (!user) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
-    }
-
     return NextResponse.json({
-      createdAlbums: user.createdAlbums,
-      sharedAlbums: user.sharedAlbums
+      albums
     });
   } catch (error) {
     console.error('[ALBUMS_ERROR]', error);

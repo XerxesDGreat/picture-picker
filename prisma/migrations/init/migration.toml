@@ -1,0 +1,4 @@
+# This is a manually created migration
+
+migration_name = "init"
+checksum = "0" 

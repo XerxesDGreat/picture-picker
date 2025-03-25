@@ -1,0 +1,1239 @@
+commit 34257ed54d911ef35a920da6ff60e1c8ee3aa4d4
+Author: Josh Wickham <josh@patchfox.io>
+Date:   Mon Mar 24 10:59:00 2025 -0700
+
+    fix build issues
+
+diff --git a/next.config.js b/next.config.js
+new file mode 100644
+index 0000000..01352a4
+--- /dev/null
++++ b/next.config.js
+@@ -0,0 +1,9 @@
++/** @type {import('next').NextConfig} */
++const nextConfig = {
++  output: 'standalone',
++  images: {
++    domains: ['localhost'],
++  },
++}
++
++module.exports = nextConfig 
+\ No newline at end of file
+diff --git a/src/app/albums/[id]/AlbumPageClient.tsx b/src/app/albums/[id]/AlbumPageClient.tsx
+new file mode 100644
+index 0000000..ad0b2b9
+--- /dev/null
++++ b/src/app/albums/[id]/AlbumPageClient.tsx
+@@ -0,0 +1,192 @@
++"use client";
++
++import { useState, useEffect } from "react";
++import PageLayout from "@/components/PageLayout";
++import PhotoCard from "@/components/PhotoCard";
++import PhotoUploadModal from "@/components/PhotoUploadModal";
++import { useRouter } from "next/navigation";
++import { useSession } from "next-auth/react";
++
++type SortOption = 
++  | "capture-date-oldest"
++  | "capture-date-newest"
++  | "date-added-oldest"
++  | "date-added-newest"
++  | "score-highest"
++  | "score-lowest";
++
++interface Photo {
++  id: string;
++  title: string;
++  url: string;
++  width: number;
++  height: number;
++  captureDate: Date | null;
++  createdAt: Date;
++  votes: Array<{ id: string; value: number; userId: string }>;
++}
++
++interface Album {
++  id: string;
++  title: string;
++  photos: Photo[];
++  userId: string;
++  sharedWith: string[];
++}
++
++export default function AlbumPageClient({ id }: { id: string }) {
++  const router = useRouter();
++  const { data: session } = useSession();
++  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
++  const [sortOption, setSortOption] = useState<SortOption>("capture-date-newest");
++  const [album, setAlbum] = useState<Album | null>(null);
++
++  useEffect(() => {
++    if (!session?.user) {
++      router.push('/login');
++      return;
++    }
++
++    const fetchAlbum = async () => {
++      try {
++        const response = await fetch(`/api/albums/${id}`);
++        if (!response.ok) {
++          throw new Error('Failed to fetch album');
++        }
++        const data = await response.json();
++        
++        // Check if user has access to this album
++        if (data.userId !== session.user.id && !data.sharedWith.includes(session.user.id)) {
++          router.push('/albums');
++          return;
++        }
++        
++        setAlbum(data);
++      } catch (error) {
++        console.error('Error fetching album:', error);
++      }
++    };
++
++    fetchAlbum();
++  }, [id, session, router]);
++
++  const handleUpload = async (files: File[]) => {
++    const formData = new FormData();
++    files.forEach((file) => {
++      formData.append("files", file);
++    });
++
++    try {
++      const response = await fetch(`/api/albums/${id}/photos`, {
++        method: 'POST',
++        body: formData,
++      });
++
++      if (!response.ok) {
++        throw new Error('Failed to upload photos');
++      }
++
++      router.refresh();
++    } catch (error) {
++      console.error('Error uploading photos:', error);
++    }
++  };
++
++  const handleVoteChange = async (photoId: string, value: number) => {
++    try {
++      const response = await fetch(`/api/photos/${photoId}/vote`, {
++        method: 'POST',
++        headers: {
++          'Content-Type': 'application/json',
++        },
++        body: JSON.stringify({ value }),
++      });
++
++      if (!response.ok) {
++        throw new Error('Failed to update vote');
++      }
++
++      router.refresh();
++    } catch (error) {
++      console.error('Error updating vote:', error);
++    }
++  };
++
++  if (!album) {
++    return (
++      <PageLayout>
++        <div className="container mx-auto px-4 py-8">
++          <div className="text-center">Loading album...</div>
++        </div>
++      </PageLayout>
++    );
++  }
++
++  const sortedPhotos = [...album.photos].sort((a, b) => {
++    switch (sortOption) {
++      case "capture-date-oldest":
++        return (a.captureDate?.getTime() ?? 0) - (b.captureDate?.getTime() ?? 0);
++      case "capture-date-newest":
++        return (b.captureDate?.getTime() ?? 0) - (a.captureDate?.getTime() ?? 0);
++      case "date-added-oldest":
++        return a.createdAt.getTime() - b.createdAt.getTime();
++      case "date-added-newest":
++        return b.createdAt.getTime() - a.createdAt.getTime();
++      case "score-highest":
++        return b.votes.length - a.votes.length;
++      case "score-lowest":
++        return a.votes.length - b.votes.length;
++      default:
++        return 0;
++    }
++  });
++
++  return (
++    <PageLayout>
++      <div className="container mx-auto px-4 py-8">
++        <div className="flex justify-between items-center mb-8">
++          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">{album.title}</h1>
++          <div className="flex gap-4">
++            <select
++              value={sortOption}
++              onChange={(e) => setSortOption(e.target.value as SortOption)}
++              className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
++            >
++              <option value="capture-date-oldest">Capture date (old to new)</option>
++              <option value="capture-date-newest">Capture date (new to old)</option>
++              <option value="date-added-oldest">Date added (old to new)</option>
++              <option value="date-added-newest">Date added (new to old)</option>
++              <option value="score-highest">Score (high to low)</option>
++              <option value="score-lowest">Score (low to high)</option>
++            </select>
++            <button
++              onClick={() => setIsUploadModalOpen(true)}
++              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
++            >
++              Add Photos
++            </button>
++          </div>
++        </div>
++
++        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
++          {sortedPhotos.map((photo) => (
++            <PhotoCard
++              key={photo.id}
++              id={photo.id}
++              url={photo.url}
++              title={photo.title}
++              votes={photo.votes}
++              onVoteChange={(value: number) => handleVoteChange(photo.id, value)}
++            />
++          ))}
++        </div>
++
++        <PhotoUploadModal
++          isOpen={isUploadModalOpen}
++          onClose={() => setIsUploadModalOpen(false)}
++          onUpload={handleUpload}
++        />
++      </div>
++    </PageLayout>
++  );
++} 
+\ No newline at end of file
+diff --git a/src/app/albums/[id]/layout.tsx b/src/app/albums/[id]/layout.tsx
+new file mode 100644
+index 0000000..e3a4fb6
+--- /dev/null
++++ b/src/app/albums/[id]/layout.tsx
+@@ -0,0 +1,46 @@
++import { getServerSession } from 'next-auth';
++import { redirect } from 'next/navigation';
++import { authOptions } from '@/app/api/auth/[...nextauth]/auth';
++import { prisma } from '@/lib/prisma';
++
++interface LayoutProps {
++  params: Promise<{ id: string }>;
++}
++
++export default async function AlbumLayout({ params }: LayoutProps) {
++  const session = await getServerSession(authOptions);
++  if (!session?.user) {
++    redirect('/login');
++  }
++
++  const { id } = await params;
++  const album = await prisma.album.findUnique({
++    where: { id },
++    include: {
++      photos: {
++        include: {
++          votes: true,
++        },
++      },
++      creator: true,
++      sharedWith: true,
++    },
++  });
++
++  if (!album) {
++    redirect('/albums');
++  }
++
++  // Check if user has access to this album
++  if (album.creator.id !== session.user.id && !album.sharedWith.some(user => user.id === session.user.id)) {
++    redirect('/albums');
++  }
++
++  return (
++    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
++      <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
++        {/* children */}
++      </div>
++    </div>
++  );
++} 
+\ No newline at end of file
+diff --git a/src/app/albums/[id]/page.tsx b/src/app/albums/[id]/page.tsx
+index 1d30e3a..2695976 100644
+--- a/src/app/albums/[id]/page.tsx
++++ b/src/app/albums/[id]/page.tsx
+@@ -1,280 +1,10 @@
+-'use client';
++import AlbumPageClient from './AlbumPageClient';
+ 
+-import { useSession } from 'next-auth/react';
+-import PageLayout from '@/components/PageLayout';
+-import { useEffect, useState, useMemo } from 'react';
+-import Link from 'next/link';
+-import { use } from 'react';
+-import PhotoUploadModal from '@/components/PhotoUploadModal';
+-import PhotoCard from '@/components/PhotoCard';
+-
+-interface Vote {
+-  id: string;
+-  value: number;
+-  userId: string;
+-}
+-
+-interface Photo {
+-  id: string;
+-  url: string;
+-  title: string | null;
+-  votes: Vote[];
+-  width: number;
+-  height: number;
+-  captureDate: string;
+-  createdAt: string;
+-  upvotes: number;
+-  downvotes: number;
++interface PageProps {
++  params: Promise<{ id: string }>;
+ }
+ 
+-interface Album {
+-  id: string;
+-  title: string;
+-  description: string | null;
+-  photos: Photo[];
+-  creator: {
+-    id: string;
+-    name: string | null;
+-  };
+-}
+-
+-type SortOption = 
+-  | 'captureDate-asc'
+-  | 'captureDate-desc'
+-  | 'createdAt-asc'
+-  | 'createdAt-desc'
+-  | 'score-desc'
+-  | 'score-asc';
+-
+-export default function AlbumPage({ params }: { params: Promise<{ id: string }> }) {
+-  const { id } = use(params);
+-  const { data: session, status } = useSession();
+-  const [album, setAlbum] = useState<Album | null>(null);
+-  const [isLoading, setIsLoading] = useState(true);
+-  const [error, setError] = useState<string | null>(null);
+-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+-  const [sortOption, setSortOption] = useState<SortOption>('score-desc');
+-
+-  const sortedPhotos = useMemo(() => {
+-    if (!album?.photos) return [];
+-    
+-    return [...album.photos].sort((a, b) => {
+-      const getScore = (photo: any) => {
+-        return photo.votes.reduce((sum: number, vote: any) => sum + vote.value, 0);
+-      };
+-
+-      switch (sortOption) {
+-        case 'captureDate-asc':
+-          return new Date(a.captureDate).getTime() - new Date(b.captureDate).getTime();
+-        case 'captureDate-desc':
+-          return new Date(b.captureDate).getTime() - new Date(a.captureDate).getTime();
+-        case 'createdAt-asc':
+-          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+-        case 'createdAt-desc':
+-          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+-        case 'score-asc': {
+-          const scoreDiff = getScore(a) - getScore(b);
+-          return scoreDiff !== 0 ? scoreDiff : new Date(a.captureDate).getTime() - new Date(b.captureDate).getTime();
+-        }
+-        case 'score-desc': {
+-          const scoreDiff = getScore(b) - getScore(a);
+-          return scoreDiff !== 0 ? scoreDiff : new Date(a.captureDate).getTime() - new Date(b.captureDate).getTime();
+-        }
+-        default:
+-          return 0;
+-      }
+-    });
+-  }, [album?.photos, sortOption]);
+-
+-  const handleSortChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+-    setSortOption(e.target.value as SortOption);
+-  };
+-
+-  const fetchAlbum = async () => {
+-    try {
+-      const response = await fetch(`/api/albums/${id}`);
+-      if (!response.ok) {
+-        throw new Error('Failed to fetch album');
+-      }
+-      const data = await response.json();
+-      setAlbum(data);
+-    } catch (err) {
+-      setError(err instanceof Error ? err.message : 'An error occurred');
+-    } finally {
+-      setIsLoading(false);
+-    }
+-  };
+-
+-  useEffect(() => {
+-    if (status === 'unauthenticated') {
+-      window.location.href = '/?signedOut=true';
+-      return;
+-    }
+-    
+-    if (status === 'authenticated' && id) {
+-      fetchAlbum();
+-    }
+-  }, [status, id]);
+-
+-  const handleUpload = async (files: File[]) => {
+-    const formData = new FormData();
+-    files.forEach(file => {
+-      formData.append('files', file);
+-    });
+-
+-    const response = await fetch(`/api/albums/${id}/photos`, {
+-      method: 'POST',
+-      body: formData,
+-    });
+-
+-    if (!response.ok) {
+-      const error = await response.json();
+-      throw new Error(error.error || 'Failed to upload photos');
+-    }
+-
+-    await fetchAlbum();
+-  };
+-
+-  const handleVote = async (photoId: string, value: number) => {
+-    try {
+-      const response = await fetch(`/api/photos/${photoId}/vote`, {
+-        method: 'POST',
+-        headers: {
+-          'Content-Type': 'application/json',
+-        },
+-        body: JSON.stringify({ value }),
+-      });
+-
+-      if (!response.ok) {
+-        throw new Error('Failed to vote');
+-      }
+-
+-      // Fetch updated album data to get new vote counts
+-      await fetchAlbum();
+-    } catch (err) {
+-      console.error('Error voting:', err);
+-    }
+-  };
+-
+-  if (isLoading) {
+-    return (
+-      <PageLayout>
+-        <div className="container mx-auto px-4 py-8">
+-          <div className="text-center">Loading album...</div>
+-        </div>
+-      </PageLayout>
+-    );
+-  }
+-
+-  if (error) {
+-    return (
+-      <PageLayout>
+-        <div className="container mx-auto px-4 py-8">
+-          <div className="text-red-500 text-center">{error}</div>
+-        </div>
+-      </PageLayout>
+-    );
+-  }
+-
+-  if (!album) {
+-    return (
+-      <PageLayout>
+-        <div className="container mx-auto px-4 py-8">
+-          <div className="text-center">Album not found</div>
+-        </div>
+-      </PageLayout>
+-    );
+-  }
+-
+-  return (
+-    <PageLayout>
+-      <div className="container mx-auto px-4 py-8">
+-        {/* Header with back button, album info, and controls */}
+-        <div className="flex items-start justify-between mb-8">
+-          <div>
+-            <Link
+-              href="/albums"
+-              className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 block mb-4"
+-            >
+-              ← Back to Albums
+-            </Link>
+-            <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">{album.title}</h1>
+-            {album.description && (
+-              <p className="text-gray-600 dark:text-gray-400 mt-1">{album.description}</p>
+-            )}
+-          </div>
+-          <div className="flex items-center gap-3">
+-            <select
+-              value={sortOption}
+-              onChange={handleSortChange}
+-              className="px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+-            >
+-              <option value="captureDate-asc">Capture date (old to new)</option>
+-              <option value="captureDate-desc">Capture date (new to old)</option>
+-              <option value="createdAt-asc">Date added (old to new)</option>
+-              <option value="createdAt-desc">Date added (new to old)</option>
+-              <option value="score-desc">Score (high to low)</option>
+-              <option value="score-asc">Score (low to high)</option>
+-            </select>
+-            <button
+-              onClick={() => setIsUploadModalOpen(true)}
+-              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors"
+-            >
+-              Add Photos
+-            </button>
+-          </div>
+-        </div>
+-
+-        {/* Photo display */}
+-        {album.photos.length === 0 ? (
+-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-8 text-center">
+-            <p className="text-gray-600 dark:text-gray-400 mb-4">No photos in this album yet</p>
+-            <button
+-              onClick={() => setIsUploadModalOpen(true)}
+-              className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors"
+-            >
+-              Add Photos
+-            </button>
+-          </div>
+-        ) : (
+-          <div className="flex flex-wrap gap-2">
+-            {sortedPhotos.map((photo) => {
+-              const aspectRatio = photo.width / photo.height;
+-              const isPortrait = photo.height > photo.width;
+-              
+-              return (
+-                <div 
+-                  key={photo.id}
+-                  className="flex-grow"
+-                  style={{
+-                    height: '375px',
+-                    flexBasis: isPortrait ? '250px' : `${Math.floor(aspectRatio * 375)}px`,
+-                    flexGrow: isPortrait ? 0 : 1,
+-                    minWidth: isPortrait ? '250px' : '300px',
+-                    maxWidth: isPortrait ? '250px' : '600px'
+-                  }}
+-                >
+-                  <PhotoCard
+-                    key={photo.id}
+-                    id={photo.id}
+-                    url={photo.url}
+-                    title={photo.title}
+-                    votes={photo.votes}
+-                    onVoteChange={(value: number) => handleVote(photo.id, value)}
+-                  />
+-                </div>
+-              );
+-            })}
+-          </div>
+-        )}
+-
+-        <PhotoUploadModal
+-          isOpen={isUploadModalOpen}
+-          onClose={() => setIsUploadModalOpen(false)}
+-          onUpload={handleUpload}
+-          albumId={id}
+-        />
+-      </div>
+-    </PageLayout>
+-  );
++export default async function AlbumPage({ params }: PageProps) {
++  const { id } = await params;
++  return <AlbumPageClient id={id} />;
+ } 
+\ No newline at end of file
+diff --git a/src/app/api/albums/[id]/photos/route.ts b/src/app/api/albums/[id]/photos/route.ts
+index eff5353..f9a5fad 100644
+--- a/src/app/api/albums/[id]/photos/route.ts
++++ b/src/app/api/albums/[id]/photos/route.ts
+@@ -1,67 +1,74 @@
+-import { NextResponse } from 'next/server';
+-import { getServerSession } from 'next-auth';
+-import { PrismaClient } from '@prisma/client';
+-import { authOptions } from '../../../auth/[...nextauth]/route';
+-import { uploadFile } from '@/lib/minio';
++import { NextRequest, NextResponse } from "next/server";
++import { getServerSession } from "next-auth";
++import { authOptions } from "@/app/api/auth/[...nextauth]/auth";
++import { prisma } from "@/lib/prisma";
++import { uploadFile } from "@/lib/minio";
+ import sharp from 'sharp';
+ import exifr from 'exifr';
+ 
+-const prisma = new PrismaClient();
+-
+ async function getImageDimensions(buffer: Buffer): Promise<{ width: number; height: number }> {
+   const metadata = await sharp(buffer).metadata();
+   return {
+     width: metadata.width || 0,
+-    height: metadata.height || 0
++    height: metadata.height || 0,
+   };
+ }
+ 
+-async function getImageCaptureDate(buffer: Buffer): Promise<Date | null> {
++async function getCaptureDate(buffer: Buffer): Promise<Date | null> {
+   try {
+-    const exif = await exifr.parse(buffer, ['DateTimeOriginal', 'CreateDate', 'ModifyDate']);
+-    if (exif) {
+-      // Try different EXIF date fields in order of preference
+-      const captureDate = exif.DateTimeOriginal || exif.CreateDate || exif.ModifyDate;
+-      if (captureDate) {
+-        return new Date(captureDate);
+-      }
+-    }
+-    return null;
++    const exif = await exifr.parse(buffer);
++    return exif?.DateTimeOriginal ? new Date(exif.DateTimeOriginal) : null;
+   } catch (error) {
+-    console.error('Error extracting EXIF data:', error);
++    console.error('Error parsing EXIF:', error);
+     return null;
+   }
+ }
+ 
+ export async function POST(
+-  request: Request,
+-  { params }: { params: { id: string } }
++  request: NextRequest,
++  { params }: { params: Promise<{ id: string }> }
+ ) {
++  const { id } = await params;
++  const session = await getServerSession(authOptions);
++  if (!session?.user) {
++    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
++  }
++
+   try {
+-    const session = await getServerSession(authOptions);
+-    if (!session?.user?.email) {
+-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
++    const formData = await request.formData();
++    const files = formData.getAll("files") as File[];
++
++    if (!files.length) {
++      return NextResponse.json(
++        { error: "No files provided" },
++        { status: 400 }
++      );
+     }
+ 
+-    const { id } = await params;
+     const album = await prisma.album.findUnique({
+       where: { id },
+-      include: { creator: true }
++      include: {
++        creator: true,
++        sharedWith: true,
++      },
+     });
+ 
+     if (!album) {
+-      return NextResponse.json({ error: 'Album not found' }, { status: 404 });
+-    }
+-
+-    if (album.creator.email !== session.user.email) {
+-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
++      return NextResponse.json(
++        { error: "Album not found" },
++        { status: 404 }
++      );
+     }
+ 
+-    const formData = await request.formData();
+-    const files = formData.getAll('files') as File[];
+-
+-    if (!files.length) {
+-      return NextResponse.json({ error: 'No files provided' }, { status: 400 });
++    // Check if user has access to this album
++    if (
++      album.creator.id !== session.user.id &&
++      !album.sharedWith.some((user) => user.id === session.user.id)
++    ) {
++      return NextResponse.json(
++        { error: "Access denied" },
++        { status: 403 }
++      );
+     }
+ 
+     const uploadedPhotos = await Promise.all(
+@@ -74,7 +81,7 @@ export async function POST(
+         );
+ 
+         const dimensions = await getImageDimensions(buffer);
+-        const captureDate = await getImageCaptureDate(buffer);
++        const captureDate = await getCaptureDate(buffer);
+ 
+         return prisma.photo.create({
+           data: {
+@@ -84,18 +91,18 @@ export async function POST(
+             width: dimensions.width,
+             height: dimensions.height,
+             captureDate,
+-            albumId: id,
+-            creatorId: album.creatorId
+-          }
++            albumId: album.id,
++            creatorId: album.creator.id
++          },
+         });
+       })
+     );
+ 
+-    return NextResponse.json({ photos: uploadedPhotos });
++    return NextResponse.json(uploadedPhotos);
+   } catch (error) {
+-    console.error('Error uploading photos:', error);
++    console.error("Error uploading photos:", error);
+     return NextResponse.json(
+-      { error: 'Error uploading photos' },
++      { error: "Failed to upload photos" },
+       { status: 500 }
+     );
+   }
+diff --git a/src/app/api/albums/[id]/route.ts b/src/app/api/albums/[id]/route.ts
+index 3587904..8c2b866 100644
+--- a/src/app/api/albums/[id]/route.ts
++++ b/src/app/api/albums/[id]/route.ts
+@@ -1,16 +1,14 @@
+-import { NextResponse } from 'next/server';
++import { NextRequest, NextResponse } from 'next/server';
+ import { getServerSession } from 'next-auth';
+-import { PrismaClient } from '@prisma/client';
+-import { authOptions } from '../../auth/[...nextauth]/route';
+-
+-const prisma = new PrismaClient();
++import { authOptions } from '../../auth/[...nextauth]/auth';
++import { prisma } from '@/lib/prisma';
+ 
+ export async function GET(
+-  request: Request,
+-  context: { params: { id: string } }
++  request: NextRequest,
++  { params }: { params: Promise<{ id: string }> }
+ ) {
++  const { id } = await params;
+   const session = await getServerSession(authOptions);
+-  const { id } = await context.params;
+   
+   if (!session?.user?.email) {
+     return NextResponse.json(
+@@ -64,7 +62,7 @@ export async function GET(
+       // Check if the album is shared with the user
+       const sharedAlbum = await prisma.album.findFirst({
+         where: {
+-          id,
++          id: id,
+           sharedWith: {
+             some: {
+               id: user.id
+diff --git a/src/app/api/albums/route.ts b/src/app/api/albums/route.ts
+index 17e8b90..67a91aa 100644
+--- a/src/app/api/albums/route.ts
++++ b/src/app/api/albums/route.ts
+@@ -1,9 +1,7 @@
+ import { NextResponse } from "next/server";
+ import { getServerSession } from "next-auth";
+-import { PrismaClient } from "@prisma/client";
+-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+-
+-const prisma = new PrismaClient();
++import { authOptions } from "@/app/api/auth/[...nextauth]/auth";
++import { prisma } from "@/lib/prisma";
+ 
+ export async function GET() {
+   const session = await getServerSession(authOptions);
+diff --git a/src/app/api/auth/[...nextauth]/auth.ts b/src/app/api/auth/[...nextauth]/auth.ts
+new file mode 100644
+index 0000000..fcd366f
+--- /dev/null
++++ b/src/app/api/auth/[...nextauth]/auth.ts
+@@ -0,0 +1,51 @@
++import { PrismaAdapter } from "@auth/prisma-adapter";
++import { PrismaClient } from "@prisma/client";
++import { NextAuthOptions } from "next-auth";
++import CredentialsProvider from "next-auth/providers/credentials";
++import bcrypt from "bcryptjs";
++
++const prisma = new PrismaClient();
++
++export const authOptions: NextAuthOptions = {
++  adapter: PrismaAdapter(prisma),
++  providers: [
++    CredentialsProvider({
++      name: "credentials",
++      credentials: {
++        email: { label: "Email", type: "email" },
++        password: { label: "Password", type: "password" }
++      },
++      async authorize(credentials) {
++        if (!credentials?.email || !credentials?.password) {
++          throw new Error("Invalid credentials");
++        }
++
++        const user = await prisma.user.findUnique({
++          where: {
++            email: credentials.email
++          }
++        });
++
++        if (!user || !user?.password) {
++          throw new Error("Invalid credentials");
++        }
++
++        const isCorrectPassword = await bcrypt.compare(
++          credentials.password,
++          user.password
++        );
++
++        if (!isCorrectPassword) {
++          throw new Error("Invalid credentials");
++        }
++
++        return user;
++      }
++    })
++  ],
++  debug: process.env.NODE_ENV === "development",
++  session: {
++    strategy: "jwt"
++  },
++  secret: process.env.NEXTAUTH_SECRET,
++}; 
+\ No newline at end of file
+diff --git a/src/app/api/auth/[...nextauth]/route.ts b/src/app/api/auth/[...nextauth]/route.ts
+index bbd163a..925dc7b 100644
+--- a/src/app/api/auth/[...nextauth]/route.ts
++++ b/src/app/api/auth/[...nextauth]/route.ts
+@@ -1,78 +1,5 @@
+-import { NextAuthOptions } from "next-auth";
+-import { PrismaAdapter } from "@auth/prisma-adapter";
+-import CredentialsProvider from "next-auth/providers/credentials";
+-import { PrismaClient } from "@prisma/client";
+-import bcrypt from "bcryptjs";
+-import NextAuth from "next-auth/next";
+-import GoogleProvider from 'next-auth/providers/google';
+-
+-const prisma = new PrismaClient();
+-
+-export const authOptions: NextAuthOptions = {
+-  adapter: PrismaAdapter(prisma),
+-  providers: [
+-    CredentialsProvider({
+-      name: "credentials",
+-      credentials: {
+-        email: { label: "Email", type: "email" },
+-        password: { label: "Password", type: "password" }
+-      },
+-      async authorize(credentials) {
+-        if (!credentials?.email || !credentials?.password) {
+-          throw new Error("Invalid credentials");
+-        }
+-
+-        const user = await prisma.user.findUnique({
+-          where: {
+-            email: credentials.email
+-          }
+-        });
+-
+-        if (!user || !user?.password) {
+-          throw new Error("Invalid credentials");
+-        }
+-
+-        const isCorrectPassword = await bcrypt.compare(
+-          credentials.password,
+-          user.password
+-        );
+-
+-        if (!isCorrectPassword) {
+-          throw new Error("Invalid credentials");
+-        }
+-
+-        return user;
+-      }
+-    }),
+-    GoogleProvider({
+-      clientId: process.env.GOOGLE_CLIENT_ID!,
+-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+-    }),
+-  ],
+-  session: {
+-    strategy: "jwt"
+-  },
+-  secret: process.env.NEXTAUTH_SECRET,
+-  debug: process.env.NODE_ENV === "development",
+-  pages: {
+-    signIn: "/login",
+-    signOut: "/?signedOut=true",
+-  },
+-  callbacks: {
+-    jwt: async ({ token, user }) => {
+-      if (user) {
+-        token.id = user.id;
+-      }
+-      return token;
+-    },
+-    session: async ({ session, token }) => {
+-      if (session?.user) {
+-        session.user.id = token.id as string;
+-      }
+-      return session;
+-    },
+-  },
+-};
++import NextAuth from "next-auth";
++import { authOptions } from "./auth";
+ 
+ const handler = NextAuth(authOptions);
+-export { handler as GET, handler as POST }; 
+\ No newline at end of file
++export const { GET, POST } = handler; 
+\ No newline at end of file
+diff --git a/src/app/api/photos/[id]/vote/route.ts b/src/app/api/photos/[id]/vote/route.ts
+index 4b35efd..e56d3a0 100644
+--- a/src/app/api/photos/[id]/vote/route.ts
++++ b/src/app/api/photos/[id]/vote/route.ts
+@@ -1,9 +1,7 @@
+ import { NextResponse } from 'next/server';
+ import { getServerSession } from 'next-auth';
+-import { authOptions } from '@/app/api/auth/[...nextauth]/route';
+-import { PrismaClient } from '@prisma/client';
+-
+-const prisma = new PrismaClient();
++import { authOptions } from '@/app/api/auth/[...nextauth]/auth';
++import { prisma } from '@/lib/prisma';
+ 
+ export async function POST(
+   request: Request,
+diff --git a/src/app/login/page.tsx b/src/app/login/page.tsx
+index c45045f..83906aa 100644
+--- a/src/app/login/page.tsx
++++ b/src/app/login/page.tsx
+@@ -2,10 +2,10 @@
+ 
+ import { signIn } from 'next-auth/react';
+ import { useRouter, useSearchParams } from 'next/navigation';
+-import { useState } from 'react';
++import { useState, Suspense } from 'react';
+ import PageLayout from '@/components/PageLayout';
+ 
+-export default function LoginPage() {
++function LoginForm() {
+   const router = useRouter();
+   const searchParams = useSearchParams();
+   const [error, setError] = useState<string | null>(null);
+@@ -33,75 +33,93 @@ export default function LoginPage() {
+         router.push('/albums');
+         router.refresh();
+       }
+-    } catch (error) {
+-      setError('An error occurred. Please try again.');
++    } catch (err) {
++      setError(err instanceof Error ? err.message : 'An error occurred. Please try again.');
+     } finally {
+       setIsLoading(false);
+     }
+   };
+ 
+   return (
+-    <PageLayout>
+-      <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
+-        <div className="max-w-md w-full space-y-8">
+-          <div>
+-            <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+-              Sign in to your account
+-            </h2>
++    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
++      <div className="max-w-md w-full space-y-8">
++        <div>
++          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
++            Sign in to your account
++          </h2>
++          <p className="mt-2 text-center text-sm text-gray-600">
++            Or{' '}
++            <a href="/register" className="font-medium text-blue-600 hover:text-blue-500">
++              create a new account
++            </a>
++          </p>
++        </div>
++        {searchParams.get('registered') === 'true' && (
++          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded relative" role="alert">
++            <span className="block sm:inline">Account created successfully! Please sign in.</span>
+           </div>
+-          {searchParams.get('registered') === 'true' && (
+-            <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded relative" role="alert">
+-              <span className="block sm:inline">Account created successfully! Please sign in.</span>
++        )}
++        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
++          <div className="rounded-md shadow-sm -space-y-px">
++            <div>
++              <label htmlFor="email" className="sr-only">
++                Email address
++              </label>
++              <input
++                id="email"
++                name="email"
++                type="email"
++                autoComplete="email"
++                required
++                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
++                placeholder="Email address"
++              />
+             </div>
+-          )}
+-          <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+-            <div className="rounded-md shadow-sm -space-y-px">
+-              <div>
+-                <label htmlFor="email" className="sr-only">
+-                  Email address
+-                </label>
+-                <input
+-                  id="email"
+-                  name="email"
+-                  type="email"
+-                  autoComplete="email"
+-                  required
+-                  className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+-                  placeholder="Email address"
+-                />
+-              </div>
+-              <div>
+-                <label htmlFor="password" className="sr-only">
+-                  Password
+-                </label>
+-                <input
+-                  id="password"
+-                  name="password"
+-                  type="password"
+-                  autoComplete="current-password"
+-                  required
+-                  className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+-                  placeholder="Password"
+-                />
+-              </div>
++            <div>
++              <label htmlFor="password" className="sr-only">
++                Password
++              </label>
++              <input
++                id="password"
++                name="password"
++                type="password"
++                autoComplete="current-password"
++                required
++                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
++                placeholder="Password"
++              />
+             </div>
++          </div>
+ 
+-            {error && (
+-              <div className="text-red-500 text-sm text-center">{error}</div>
+-            )}
+-
+-            <div>
+-              <button
+-                type="submit"
+-                disabled={isLoading}
+-                className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+-              >
+-                {isLoading ? 'Signing in...' : 'Sign in'}
+-              </button>
++          {error && (
++            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded" role="alert">
++              <span className="block sm:inline">{error}</span>
+             </div>
+-          </form>
+-        </div>
++          )}
++
++          <div>
++            <button
++              type="submit"
++              disabled={isLoading}
++              className={`group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
++                isLoading ? 'opacity-50 cursor-not-allowed' : ''
++              }`}
++            >
++              {isLoading ? 'Signing in...' : 'Sign in'}
++            </button>
++          </div>
++        </form>
+       </div>
++    </div>
++  );
++}
++
++export default function LoginPage() {
++  return (
++    <PageLayout>
++      <Suspense>
++        <LoginForm />
++      </Suspense>
+     </PageLayout>
+   );
+ } 
+\ No newline at end of file
+diff --git a/src/app/page.tsx b/src/app/page.tsx
+index 5b99b32..35660ea 100644
+--- a/src/app/page.tsx
++++ b/src/app/page.tsx
+@@ -2,19 +2,28 @@
+ 
+ import PageLayout from '@/components/PageLayout';
+ import { useSearchParams } from 'next/navigation';
++import { Suspense } from 'react';
+ 
+-export default function Home() {
++function SignOutMessage() {
+   const searchParams = useSearchParams();
+   const signedOut = searchParams.get('signedOut');
+ 
++  if (!signedOut) return null;
++
++  return (
++    <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 text-center" role="alert">
++      <span className="block sm:inline">You have been signed out successfully.</span>
++    </div>
++  );
++}
++
++export default function Home() {
+   return (
+     <PageLayout>
+       <main className="min-h-[calc(100vh-4rem)]">
+-        {signedOut && (
+-          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 text-center" role="alert">
+-            <span className="block sm:inline">You have been signed out successfully.</span>
+-          </div>
+-        )}
++        <Suspense>
++          <SignOutMessage />
++        </Suspense>
+         {/* Hero Section */}
+         <section className="bg-gradient-to-r from-blue-500 to-purple-600 text-white">
+           <div className="container mx-auto px-4 py-20">
+@@ -48,14 +57,14 @@ export default function Home() {
+                 <div className="text-blue-500 text-4xl mb-4">👥</div>
+                 <h3 className="text-xl font-semibold mb-2">Share with Anyone</h3>
+                 <p className="text-gray-600">
+-                  Create private albums and share them with specific friends or family members.
++                  Share your albums with friends and family, and let them vote on their favorites.
+                 </p>
+               </div>
+               <div className="bg-white p-6 rounded-lg shadow-md">
+-                <div className="text-blue-500 text-4xl mb-4">👍</div>
+-                <h3 className="text-xl font-semibold mb-2">Vote & Engage</h3>
++                <div className="text-blue-500 text-4xl mb-4">🏆</div>
++                <h3 className="text-xl font-semibold mb-2">Vote and Rank</h3>
+                 <p className="text-gray-600">
+-                  Let your audience vote on photos and sort them by popularity.
++                  Let your audience vote on their favorite photos and see what rises to the top.
+                 </p>
+               </div>
+             </div>
+diff --git a/src/components/PhotoCard.tsx b/src/components/PhotoCard.tsx
+index 4acb664..57fcd5f 100644
+--- a/src/components/PhotoCard.tsx
++++ b/src/components/PhotoCard.tsx
+@@ -2,6 +2,7 @@
+ 
+ import { useState } from 'react';
+ import { useSession } from 'next-auth/react';
++import Image from 'next/image';
+ 
+ interface Vote {
+   id: string;
+@@ -61,10 +62,12 @@ export default function PhotoCard({ id, url, title, votes, onVoteChange }: Photo
+ 
+   return (
+     <div className="relative h-full group">
+-      <img
++      <Image
+         src={url}
+         alt={title || 'Photo'}
+-        className="w-full h-full object-cover"
++        fill
++        className="object-cover"
++        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+       />
+       <div className="absolute bottom-0 left-0 right-0 bg-black/50 backdrop-blur-sm p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+         <div className="flex items-center gap-4 text-sm">
+diff --git a/src/components/PhotoUploadModal.tsx b/src/components/PhotoUploadModal.tsx
+index f701440..11d852e 100644
+--- a/src/components/PhotoUploadModal.tsx
++++ b/src/components/PhotoUploadModal.tsx
+@@ -2,15 +2,15 @@
+ 
+ import { useState, useCallback } from 'react';
+ import { useDropzone } from 'react-dropzone';
++import Image from 'next/image';
+ 
+ interface PhotoUploadModalProps {
+   isOpen: boolean;
+   onClose: () => void;
+   onUpload: (files: File[]) => Promise<void>;
+-  albumId: string;
+ }
+ 
+-export default function PhotoUploadModal({ isOpen, onClose, onUpload, albumId }: PhotoUploadModalProps) {
++export default function PhotoUploadModal({ isOpen, onClose, onUpload }: PhotoUploadModalProps) {
+   const [isUploading, setIsUploading] = useState(false);
+   const [error, setError] = useState<string | null>(null);
+   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+@@ -82,11 +82,12 @@ export default function PhotoUploadModal({ isOpen, onClose, onUpload, albumId }:
+             <h3 className="font-semibold mb-2 text-gray-900 dark:text-gray-100">Selected Photos ({selectedFiles.length})</h3>
+             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+               {selectedFiles.map((file, index) => (
+-                <div key={index} className="relative group">
+-                  <img
++                <div key={index} className="relative group aspect-square">
++                  <Image
+                     src={URL.createObjectURL(file)}
+                     alt={file.name}
+-                    className="w-full h-32 object-cover rounded-lg"
++                    fill
++                    className="object-cover rounded-lg"
+                   />
+                   <button
+                     onClick={() => removeFile(index)}
+diff --git a/src/lib/prisma.ts b/src/lib/prisma.ts
+new file mode 100644
+index 0000000..41c4312
+--- /dev/null
++++ b/src/lib/prisma.ts
+@@ -0,0 +1,11 @@
++import { PrismaClient } from '@prisma/client';
++
++const globalForPrisma = globalThis as unknown as {
++  prisma: PrismaClient | undefined;
++};
++
++export const prisma = globalForPrisma.prisma ?? new PrismaClient();
++
++if (process.env.NODE_ENV !== 'production') {
++  globalForPrisma.prisma = prisma;
++} 
+\ No newline at end of file
