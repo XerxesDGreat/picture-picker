@@ -6,5 +6,9 @@ interface PageProps {
 
 export default async function AlbumPage({ params }: PageProps) {
   const { id } = await params;
-  return <AlbumPageClient id={id} />;
+  return (
+    <div className="w-full">
+      <AlbumPageClient id={id} />
+    </div>
+  );
 } 

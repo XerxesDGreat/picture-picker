@@ -1,47 +1,38 @@
 # Picture Picker
 
-A web application for organizing and voting on photos, helping you choose the best pictures from your collection. Built with Next.js, TypeScript, and Prisma.
+A collaborative photo sharing and voting application built with Next.js, Prisma, and MinIO. Users can create albums, upload photos, and vote on their favorites. The application features a Google Photos-style interface with a lightbox view and real-time vote tracking.
 
 ## Features
 
-- **Photo Management**
-  - Create albums to organize your photos
+- **Album Management**
+  - Create photo albums
   - Upload multiple photos at once
-  - Support for both portrait and landscape photos with responsive layouts
-  - Automatic capture date extraction from photo metadata
+  - Public albums visible to all users
+  - Automatic image dimension detection
+  - EXIF data extraction for capture dates
+
+- **Photo Viewing**
+  - Responsive masonry-style grid layout
+  - Google Photos-style lightbox view
+  - Keyboard navigation support
+  - Maintains aspect ratios for both portrait and landscape photos
+
+- **Photo Organization**
+  - Sort by capture date (oldest/newest)
+  - Sort by upload date (oldest/newest)
+  - Sort by vote score (highest/lowest)
 
 - **Voting System**
-  - Upvote and downvote photos
-  - Unvote by clicking the same button again
-  - Real-time vote count updates
-  - Sort photos by score (high to low or low to high)
-
-- **Sorting Options**
-  - Capture date (old to new, new to old)
-  - Upload date (old to new, new to old)
-  - Score (high to low, low to high)
-  - Secondary sort by capture date when scores are equal
-
-- **User Features**
-  - User authentication with email/password and Google
-  - Personal voting history
-  - Secure photo storage
-
-## Tech Stack
-
-- **Frontend**: Next.js 14, TypeScript, Tailwind CSS
-- **Backend**: Next.js API Routes
-- **Database**: MySQL with Prisma ORM
-- **Authentication**: NextAuth.js
-- **File Storage**: MinIO
-- **Image Processing**: Sharp
+  - Upvote/downvote photos
+  - Real-time vote updates
+  - Score-based sorting
+  - Vote counts visible in both grid and lightbox views
 
 ## Prerequisites
 
-- Node.js 18 or later
-- MySQL database
-- MinIO server for file storage
-- Google OAuth credentials (for Google sign-in)
+- Docker and Docker Compose
+- Node.js 18+ (for development)
+- Git
 
 ## Environment Variables
 
@@ -49,26 +40,56 @@ Create a `.env` file in the root directory with the following variables:
 
 ```env
 # Database
-DATABASE_URL="mysql://user:password@localhost:3306/picturepicker_dev"
+DATABASE_URL="mysql://root:your_password@db:3306/picture_picker"
+MYSQL_ROOT_PASSWORD=your_password
+MYSQL_DATABASE=picture_picker
 
-# NextAuth
-NEXTAUTH_SECRET="your-secret-key"
-NEXTAUTH_URL="http://localhost:3000"
-
-# Google OAuth
-GOOGLE_CLIENT_ID="your-google-client-id"
-GOOGLE_CLIENT_SECRET="your-google-client-secret"
-
-# MinIO
-MINIO_ENDPOINT="localhost"
+# MinIO Configuration
+MINIO_ROOT_USER=your_minio_user
+MINIO_ROOT_PASSWORD=your_minio_password
+MINIO_ENDPOINT=minio
 MINIO_PORT=9000
-MINIO_ACCESS_KEY="your-access-key"
-MINIO_SECRET_KEY="your-secret-key"
-MINIO_BUCKET_NAME="picturepicker"
 MINIO_USE_SSL=false
+MINIO_BUCKET_NAME=photos
+
+# NextAuth Configuration
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=your_nextauth_secret
+
+# OAuth Providers (at least one is required)
+# GitHub
+GITHUB_ID=your_github_oauth_id
+GITHUB_SECRET=your_github_oauth_secret
+
+# Google
+GOOGLE_ID=your_google_oauth_id
+GOOGLE_SECRET=your_google_oauth_secret
 ```
 
-## Getting Started
+## Running with Docker Compose
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/picture-picker.git
+   cd picture-picker
+   ```
+
+2. Create and configure the `.env` file as shown above
+
+3. Start the application:
+   ```bash
+   docker compose up -d
+   ```
+
+4. Access the application at `http://localhost:3000`
+
+The application will automatically:
+- Set up the MySQL database
+- Run database migrations
+- Start the MinIO server
+- Start the Next.js application
+
+## Development Setup
 
 1. Clone the repository:
    ```bash
@@ -81,91 +102,72 @@ MINIO_USE_SSL=false
    npm install
    ```
 
-3. Set up the database:
-   ```bash
-   npx prisma generate
-   npx prisma db push
+3. Create and configure the `.env` file as shown above, but update the DATABASE_URL:
+   ```env
+   DATABASE_URL="mysql://root:your_password@localhost:3306/picture_picker"
    ```
 
-4. Start the development server:
+4. Start the development database and MinIO:
+   ```bash
+   docker compose up db minio -d
+   ```
+
+5. Run database migrations:
+   ```bash
+   npx prisma generate
+   npx prisma migrate dev
+   ```
+
+6. Start the development server:
    ```bash
    npm run dev
    ```
 
-5. Open [http://localhost:3000](http://localhost:3000) in your browser.
+7. Access the application at `http://localhost:3000`
 
-## Using the Application
+## Database Migrations
 
-### Authentication
-- Sign up with email/password or Google account
-- Log in to access your albums and voting features
-
-### Managing Albums
-1. Create a new album:
-   - Click "New Album" on the home page
-   - Enter an album title
-   - Click "Create Album"
-
-2. Add photos to an album:
-   - Open an album
-   - Click "Add Photos"
-   - Drag and drop or select photos
-   - Photos will be uploaded and displayed in the album
-
-### Voting and Sorting
-1. Vote on photos:
-   - Hover over a photo to reveal voting controls
-   - Click thumbs up (👍) to upvote
-   - Click thumbs down (👎) to downvote
-   - Click the same button again to remove your vote
-
-2. Sort photos:
-   - Use the dropdown menu to select sorting criteria
-   - Options include:
-     - Capture date (old to new, new to old)
-     - Upload date (old to new, new to old)
-     - Score (high to low, low to high)
-
-### Photo Layout
-- Photos are displayed in a responsive grid
-- Portrait photos maintain their aspect ratio
-- Landscape photos fill available space
-- Hover over photos to see voting controls
-
-## Development
-
-### Project Structure
-```
-src/
-├── app/                    # Next.js app directory
-│   ├── api/               # API routes
-│   ├── albums/            # Album pages
-│   └── auth/              # Authentication pages
-├── components/            # React components
-├── lib/                   # Utility functions and configurations
-└── types/                 # TypeScript type definitions
+To create a new migration:
+```bash
+npx prisma migrate dev --name your_migration_name
 ```
 
-### Key Files
-- `src/app/api/albums/[id]/photos/route.ts`: Photo upload endpoint
-- `src/app/api/photos/[id]/vote/route.ts`: Vote handling endpoint
-- `src/components/PhotoCard.tsx`: Photo display and voting component
-- `src/app/albums/[id]/page.tsx`: Album page with sorting and layout
+To apply migrations in production:
+```bash
+npx prisma migrate deploy
+```
 
-### Database Schema
-The application uses Prisma with the following main models:
-- `User`: User accounts and authentication
-- `Album`: Photo collections
-- `Photo`: Individual photos with metadata
-- `Vote`: User votes on photos
+## Project Structure
+
+```
+picture-picker/
+├── prisma/                # Database schema and migrations
+├── public/                # Static assets
+├── src/
+│   ├── app/              # Next.js app router pages and API routes
+│   ├── components/       # React components
+│   └── lib/             # Utility functions and shared code
+├── .env                  # Environment variables
+├── docker-compose.yml    # Docker Compose configuration
+├── Dockerfile           # Next.js application container
+└── next.config.js       # Next.js configuration
+```
+
+## API Routes
+
+- `GET /api/albums` - List all albums
+- `POST /api/albums` - Create a new album
+- `GET /api/albums/:id` - Get album details
+- `POST /api/albums/:id/photos` - Upload photos to an album
+- `POST /api/photos/:id/vote` - Vote on a photo
 
 ## Contributing
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+2. Create your feature branch: `git checkout -b feature/my-new-feature`
+3. Commit your changes: `git commit -am 'Add some feature'`
+4. Push to the branch: `git push origin feature/my-new-feature`
+5. Submit a pull request
 
 ## License
 

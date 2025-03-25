@@ -46,40 +46,22 @@ export async function GET(
       );
     }
 
-    // Check if the user has access to this album
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email }
+    // Transform the response to match the client's expected structure
+    return NextResponse.json({
+      id: album.id,
+      title: album.title,
+      photos: album.photos.map(photo => ({
+        id: photo.id,
+        title: photo.title,
+        url: photo.url,
+        width: photo.width,
+        height: photo.height,
+        captureDate: photo.captureDate ? new Date(photo.captureDate) : null,
+        createdAt: new Date(photo.createdAt),
+        votes: photo.votes
+      })),
+      userId: album.creatorId
     });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
-      );
-    }
-
-    if (album.creatorId !== user.id) {
-      // Check if the album is shared with the user
-      const sharedAlbum = await prisma.album.findFirst({
-        where: {
-          id: id,
-          sharedWith: {
-            some: {
-              id: user.id
-            }
-          }
-        }
-      });
-
-      if (!sharedAlbum) {
-        return NextResponse.json(
-          { error: 'Access denied' },
-          { status: 403 }
-        );
-      }
-    }
-
-    return NextResponse.json(album);
   } catch (error) {
     console.error('[ALBUM_ERROR]', error);
     return NextResponse.json(

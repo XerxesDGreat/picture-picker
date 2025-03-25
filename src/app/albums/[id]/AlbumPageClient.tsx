@@ -6,6 +6,7 @@ import PhotoCard from "@/components/PhotoCard";
 import PhotoUploadModal from "@/components/PhotoUploadModal";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
+import PhotoLightbox from "@/components/PhotoLightbox";
 
 type SortOption = 
   | "capture-date-oldest"
@@ -21,8 +22,8 @@ interface Photo {
   url: string;
   width: number;
   height: number;
-  captureDate: Date | null;
-  createdAt: Date;
+  captureDate: string | null;
+  createdAt: string;
   votes: Array<{ id: string; value: number; userId: string }>;
 }
 
@@ -31,44 +32,39 @@ interface Album {
   title: string;
   photos: Photo[];
   userId: string;
-  sharedWith: string[];
 }
 
 export default function AlbumPageClient({ id }: { id: string }) {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [sortOption, setSortOption] = useState<SortOption>("capture-date-newest");
+  const [sortOption, setSortOption] = useState<SortOption>("score-highest");
   const [album, setAlbum] = useState<Album | null>(null);
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!session?.user) {
+    if (status === 'unauthenticated') {
       router.push('/login');
       return;
     }
 
-    const fetchAlbum = async () => {
-      try {
-        const response = await fetch(`/api/albums/${id}`);
-        if (!response.ok) {
-          throw new Error('Failed to fetch album');
+    if (status === 'authenticated' && session?.user) {
+      const fetchAlbum = async () => {
+        try {
+          const response = await fetch(`/api/albums/${id}`);
+          if (!response.ok) {
+            throw new Error('Failed to fetch album');
+          }
+          const data = await response.json();
+          setAlbum(data);
+        } catch (error) {
+          console.error('Error fetching album:', error);
         }
-        const data = await response.json();
-        
-        // Check if user has access to this album
-        if (data.userId !== session.user.id && !data.sharedWith.includes(session.user.id)) {
-          router.push('/albums');
-          return;
-        }
-        
-        setAlbum(data);
-      } catch (error) {
-        console.error('Error fetching album:', error);
-      }
-    };
+      };
 
-    fetchAlbum();
-  }, [id, session, router]);
+      fetchAlbum();
+    }
+  }, [id, session, status, router]);
 
   const handleUpload = async (files: File[]) => {
     const formData = new FormData();
@@ -86,14 +82,60 @@ export default function AlbumPageClient({ id }: { id: string }) {
         throw new Error('Failed to upload photos');
       }
 
+      // Refresh server components
       router.refresh();
+
+      // Refetch album data to update the client component
+      const albumResponse = await fetch(`/api/albums/${id}`);
+      if (albumResponse.ok) {
+        const data = await albumResponse.json();
+        setAlbum(data);
+      }
+
+      // Close the upload modal
+      setIsUploadModalOpen(false);
     } catch (error) {
       console.error('Error uploading photos:', error);
     }
   };
 
+  const photoScore = (photo: Photo) => {
+    return photo.votes.reduce((acc, vote) => acc + vote.value, 0);
+  }
+
+  const photoCaptureDate = (photo: Photo) => {
+    return photo.captureDate ? new Date(photo.captureDate).getTime() : 0;
+  }
+
   const handleVoteChange = async (photoId: string, value: number) => {
+    if (!album || !session?.user?.id) return;
+
     try {
+      // Update local state immediately for better UX
+      setAlbum(prevAlbum => {
+        if (!prevAlbum) return null;
+        return {
+          ...prevAlbum,
+          photos: prevAlbum.photos.map(photo => {
+            if (photo.id !== photoId) return photo;
+            
+            // Remove existing vote if any
+            const votes = photo.votes.filter(vote => vote.userId !== session.user.id);
+            
+            // Add new vote if value is not 0
+            if (value !== 0) {
+              votes.push({
+                id: `temp-${Date.now()}`, // Temporary ID for optimistic update
+                value,
+                userId: session.user.id
+              });
+            }
+            
+            return { ...photo, votes };
+          })
+        };
+      });
+
       const response = await fetch(`/api/photos/${photoId}/vote`, {
         method: 'POST',
         headers: {
@@ -106,9 +148,16 @@ export default function AlbumPageClient({ id }: { id: string }) {
         throw new Error('Failed to update vote');
       }
 
-      router.refresh();
+      // Refresh the album data to get the actual vote counts
+      const albumResponse = await fetch(`/api/albums/${id}`);
+      if (albumResponse.ok) {
+        const data = await albumResponse.json();
+        setAlbum(data);
+      }
     } catch (error) {
       console.error('Error updating vote:', error);
+      // Revert to original state on error
+      router.refresh();
     }
   };
 
@@ -122,20 +171,29 @@ export default function AlbumPageClient({ id }: { id: string }) {
     );
   }
 
+  const scoreThenCaptureDateCmp = (a: Photo, b: Photo, reverse: boolean = false) => {
+    const scoreA = photoScore(a);
+    const scoreB = photoScore(b);
+    if (scoreB === scoreA) {
+      return photoCaptureDate(a) - photoCaptureDate(b);
+    }
+    return reverse ? scoreB - scoreA : scoreA - scoreB;
+  }
+
   const sortedPhotos = [...album.photos].sort((a, b) => {
     switch (sortOption) {
       case "capture-date-oldest":
-        return (a.captureDate?.getTime() ?? 0) - (b.captureDate?.getTime() ?? 0);
+        return photoCaptureDate(a) - photoCaptureDate(b);
       case "capture-date-newest":
-        return (b.captureDate?.getTime() ?? 0) - (a.captureDate?.getTime() ?? 0);
+        return photoCaptureDate(b) - photoCaptureDate(a);
       case "date-added-oldest":
-        return a.createdAt.getTime() - b.createdAt.getTime();
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
       case "date-added-newest":
-        return b.createdAt.getTime() - a.createdAt.getTime();
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       case "score-highest":
-        return b.votes.length - a.votes.length;
+        return scoreThenCaptureDateCmp(a, b, true);
       case "score-lowest":
-        return a.votes.length - b.votes.length;
+        return scoreThenCaptureDateCmp(a, b, false);
       default:
         return 0;
     }
@@ -168,17 +226,35 @@ export default function AlbumPageClient({ id }: { id: string }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {sortedPhotos.map((photo) => (
-            <PhotoCard
-              key={photo.id}
-              id={photo.id}
-              url={photo.url}
-              title={photo.title}
-              votes={photo.votes}
-              onVoteChange={(value: number) => handleVoteChange(photo.id, value)}
-            />
-          ))}
+        <div className="flex flex-wrap gap-2">
+          {sortedPhotos.map((photo, index) => {
+            const aspectRatio = photo.width / photo.height;
+            const isPortrait = photo.height > photo.width;
+            
+            return (
+              <div 
+                key={photo.id}
+                className="flex-grow"
+                style={{
+                  height: '375px',
+                  flexBasis: isPortrait ? '250px' : `${Math.floor(aspectRatio * 375)}px`,
+                  flexGrow: isPortrait ? 0 : 1,
+                  minWidth: isPortrait ? '250px' : '300px',
+                  maxWidth: isPortrait ? '250px' : '600px'
+                }}
+              >
+                <PhotoCard
+                  key={photo.id}
+                  id={photo.id}
+                  url={photo.url}
+                  title={photo.title}
+                  votes={photo.votes}
+                  onVoteChange={(value: number) => handleVoteChange(photo.id, value)}
+                  onClick={() => setSelectedPhotoIndex(index)}
+                />
+              </div>
+            );
+          })}
         </div>
 
         <PhotoUploadModal
@@ -186,6 +262,16 @@ export default function AlbumPageClient({ id }: { id: string }) {
           onClose={() => setIsUploadModalOpen(false)}
           onUpload={handleUpload}
         />
+
+        {selectedPhotoIndex !== null && (
+          <PhotoLightbox
+            photos={sortedPhotos}
+            currentPhotoIndex={selectedPhotoIndex}
+            onClose={() => setSelectedPhotoIndex(null)}
+            onNavigate={setSelectedPhotoIndex}
+            onVoteChange={handleVoteChange}
+          />
+        )}
       </div>
     </PageLayout>
   );
